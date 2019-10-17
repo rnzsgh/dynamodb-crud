@@ -95,6 +95,32 @@ func main() {
       i.Info.Value,
     )
   }
+
+  if err = delete(&TestKey{ Id: "thisisatest0"}, svc); err != nil {
+    fmt.Println(err)
+  }
+}
+
+func delete(k *TestKey, svc *dynamodb.DynamoDB) error {
+  key, err := dynamodbattribute.MarshalMap(*k)
+  if err != nil {
+    return err
+  }
+
+  if out, err := svc.DeleteItem(&dynamodb.DeleteItemInput{
+    TableName: aws.String("Test"),
+    ReturnValues: aws.String("ALL_OLD"),
+    Key: key,
+  }); err != nil {
+    return err
+  } else {
+    if len(out.Attributes) == 0 {
+      fmt.Println("Nothing deleted")
+    }
+  }
+
+  return nil
+
 }
 
 func items(k *TestKey, svc *dynamodb.DynamoDB) ([]*Test, error) {
@@ -110,7 +136,6 @@ func items(k *TestKey, svc *dynamodb.DynamoDB) ([]*Test, error) {
     ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
       ":id": key["id"],
     },
-
   })
   if err != nil {
     return nil, err
