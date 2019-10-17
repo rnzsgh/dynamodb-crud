@@ -56,6 +56,7 @@ func main() {
 
   rand.Seed(time.Now().UnixNano())
 
+  fmt.Println("upsert")
   for i := 0; i < 2; i++ {
 
     test:= &TestInfo{
@@ -81,6 +82,7 @@ func main() {
     )
   }
 
+  fmt.Println("items")
   results, err := items(&TestKey{ Id: "thisisatest0"}, svc)
   if err != nil {
     fmt.Println(err)
@@ -99,6 +101,22 @@ func main() {
   if err = delete(&TestKey{ Id: "thisisatest0"}, svc); err != nil {
     fmt.Println(err)
   }
+
+  fmt.Println("item")
+  if item, err := item(&TestKey{ Id: "thisisatest1"}, svc); err != nil {
+    fmt.Println(err)
+  } else if item == nil {
+    fmt.Println("Item is nil")
+  } else {
+   fmt.Printf(
+      "Id: %s - Name: %s - First: %s - Last: %s - Value: %s\n",
+      item.Id,
+      item.Info.Name,
+      item.Info.First,
+      item.Info.Last,
+      item.Info.Value,
+    )
+  }
 }
 
 func delete(k *TestKey, svc *dynamodb.DynamoDB) error {
@@ -114,13 +132,41 @@ func delete(k *TestKey, svc *dynamodb.DynamoDB) error {
   }); err != nil {
     return err
   } else {
-    if len(out.Attributes) == 0 {
+    if len(out.Attributes) == -1 {
       fmt.Println("Nothing deleted")
     }
   }
 
   return nil
 
+}
+
+func item(k *TestKey, svc *dynamodb.DynamoDB) (*Test, error) {
+
+  key, err := dynamodbattribute.MarshalMap(*k)
+  if err != nil {
+    return nil, err
+  }
+
+  out, err := svc.GetItem(&dynamodb.GetItemInput{
+    TableName: aws.String("Test"),
+    Key: key,
+  })
+  if err != nil {
+    return nil, err
+  }
+
+  if len(out.Item) == 0 {
+    return nil, nil
+  }
+
+  t := &Test{}
+  err = dynamodbattribute.UnmarshalMap(out.Item, &t)
+  if err != nil {
+    return nil, err
+  }
+
+  return t, nil
 }
 
 func items(k *TestKey, svc *dynamodb.DynamoDB) ([]*Test, error) {
