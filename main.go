@@ -56,6 +56,8 @@ func main() {
     return
   }
 
+  fmt.Printf("row count: %d\n", count(svc))
+
   rand.Seed(time.Now().UnixNano())
 
   fmt.Println("upsert")
@@ -68,21 +70,15 @@ func main() {
       Value: strconv.Itoa(rand.Intn(1000)),
     }
 
-    updated, err := upsert(&TestKey{ Id: fmt.Sprintf("thisisatest%d", i) }, test, svc)
+    err = upsert(&TestKey{ Id: fmt.Sprintf("thisisatest%d", i) }, test, "Test", ":i", "set i=:i", svc)
     if err != nil {
       fmt.Println(err)
       return
     }
-
-    fmt.Printf(
-      "Id: %s - Name: %s - First: %s - Last: %s - Value: %s\n",
-      updated.Id,
-      updated.Info.Name,
-      updated.Info.First,
-      updated.Info.Last,
-      updated.Info.Value,
-    )
   }
+
+  fmt.Printf("row count: %d\n", count(svc))
+  fmt.Println("put")
 
   if err = put(
     &Test{
@@ -98,6 +94,8 @@ func main() {
     fmt.Println(err)
     return
   }
+
+  fmt.Printf("row count: %d\n", count(svc))
 
   fmt.Println("items")
   results, err := items(&TestKey{ Id: "thisisatest0"}, &Test{}, "Test", svc)
@@ -116,9 +114,13 @@ func main() {
     )
   }
 
+  fmt.Printf("row count: %d\n", count(svc))
+  fmt.Println("delete")
   if err = delete(&TestKey{ Id: "thisisatest0"}, "Test", svc); err != nil {
     fmt.Println(err)
   }
+
+  fmt.Printf("row count: %d\n", count(svc))
 
   fmt.Println("item")
   test := &Test{}
@@ -138,7 +140,20 @@ func main() {
       test.Info.Value,
     )
   }
+
+  fmt.Printf("row count: %d\n", count(svc))
 }
+
+func count(svc *dynamodb.DynamoDB) int64 {
+  if c, err := rowCount("Test", svc); err != nil {
+    fmt.Println(err)
+    return 0
+  } else {
+    return c
+  }
+}
+
+
 
 func delete(k interface{}, table string, svc *dynamodb.DynamoDB) error {
   key, err := dynamodbattribute.MarshalMap(k)
@@ -230,42 +245,45 @@ func items(k interface{}, itemType interface{}, table string, svc *dynamodb.Dyna
   return items, nil
 }
 
-func upsert(k *TestKey, test *TestInfo, svc *dynamodb.DynamoDB) (*Test, error) {
+func rowCount(table string, svc *dynamodb.DynamoDB) (int64, error) {
 
-  key, err := dynamodbattribute.MarshalMap(*k)
+  out, err := svc.DescribeTable(&dynamodb.DescribeTableInput{ TableName: aws.String(table) })
   if err != nil {
-    return nil, err
+    return 0, err
   }
 
-  update, err := dynamodbattribute.MarshalMap(*test)
+  return aws.Int64Value(out.Table.ItemCount), nil
+
+}
+
+func upsert(k interface{}, i interface{}, table, entryField, expression string, svc *dynamodb.DynamoDB) error {
+
+  key, err := dynamodbattribute.MarshalMap(k)
   if err != nil {
-    return nil, err
+    return err
+  }
+
+  update, err := dynamodbattribute.MarshalMap(i)
+  if err != nil {
+    return  err
   }
   //fmt.Println(update)
 
   input := &dynamodb.UpdateItemInput{
     Key:                       key,
-    TableName:                 aws.String("Test"),
-    UpdateExpression:          aws.String("set i=:i"),
+    TableName:                 aws.String(table),
+    UpdateExpression:          aws.String(expression),
     ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
-      ":i": &dynamodb.AttributeValue{M: update},
+      entryField: &dynamodb.AttributeValue{M: update},
     },
-    ReturnValues:              aws.String("ALL_NEW"),
+    ReturnValues:              aws.String("NONE"),
   }
 
-  result, err := svc.UpdateItem(input)
-  if err != nil {
-    return nil, err
+  if _, err = svc.UpdateItem(input); err != nil {
+    return err
   }
 
-  updated := Test{}
-  err = dynamodbattribute.UnmarshalMap(result.Attributes, &updated)
-  if err != nil {
-    return nil, err
-  }
-
-  return &updated, nil
-
+  return nil
 }
 
 func table(svc *dynamodb.DynamoDB) error {
