@@ -54,27 +54,92 @@ func main() {
     return
   }
 
-  k := TestKey{ Id: "thisisatest" }
-
-  key, err := dynamodbattribute.MarshalMap(k)
-  if err != nil {
-    fmt.Println(err.Error())
-    return
-  }
-
   rand.Seed(time.Now().UnixNano())
 
-  test:= TestInfo{
-    Name: "First Last",
-    First: "First",
-    Last: "Last",
-    Value: strconv.Itoa(rand.Intn(1000)),
+  for i := 0; i < 2; i++ {
+
+    test:= &TestInfo{
+      Name: "First Last",
+      First: "First",
+      Last: "Last",
+      Value: strconv.Itoa(rand.Intn(1000)),
+    }
+
+    updated, err := upsert(&TestKey{ Id: fmt.Sprintf("thisisatest%d", i) }, test, svc)
+    if err != nil {
+      fmt.Println(err)
+      return
+    }
+
+    fmt.Printf(
+      "Id: %s - Name: %s - First: %s - Last: %s - Value: %s\n",
+      updated.Id,
+      updated.Info.Name,
+      updated.Info.First,
+      updated.Info.Last,
+      updated.Info.Value,
+    )
   }
 
-  update, err := dynamodbattribute.MarshalMap(test)
+  results, err := items(&TestKey{ Id: "thisisatest0"}, svc)
   if err != nil {
-    fmt.Println(err.Error())
-    return
+    fmt.Println(err)
+  }
+  for _, i := range results {
+   fmt.Printf(
+      "Id: %s - Name: %s - First: %s - Last: %s - Value: %s\n",
+      i.Id,
+      i.Info.Name,
+      i.Info.First,
+      i.Info.Last,
+      i.Info.Value,
+    )
+  }
+}
+
+func items(k *TestKey, svc *dynamodb.DynamoDB) ([]*Test, error) {
+
+  key, err := dynamodbattribute.MarshalMap(*k)
+  if err != nil {
+    return nil, err
+  }
+
+  out, err := svc.Query(&dynamodb.QueryInput{
+    TableName: aws.String("Test"),
+    KeyConditionExpression: aws.String("id=:id"),
+    ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
+      ":id": key["id"],
+    },
+
+  })
+  if err != nil {
+    return nil, err
+  }
+
+  var items []*Test
+
+  for _, item := range out.Items {
+    t := &Test{}
+    err = dynamodbattribute.UnmarshalMap(item, &t)
+    if err != nil {
+      return nil, err
+    }
+    items = append(items, t)
+  }
+
+  return items, nil
+}
+
+func upsert(k *TestKey, test *TestInfo, svc *dynamodb.DynamoDB) (*Test, error) {
+
+  key, err := dynamodbattribute.MarshalMap(*k)
+  if err != nil {
+    return nil, err
+  }
+
+  update, err := dynamodbattribute.MarshalMap(*test)
+  if err != nil {
+    return nil, err
   }
   //fmt.Println(update)
 
@@ -90,25 +155,17 @@ func main() {
 
   result, err := svc.UpdateItem(input)
   if err != nil {
-    fmt.Println(err.Error())
-    return
+    return nil, err
   }
 
   updated := Test{}
   err = dynamodbattribute.UnmarshalMap(result.Attributes, &updated)
   if err != nil {
-    fmt.Println(err.Error())
-    return
+    return nil, err
   }
 
-  fmt.Printf(
-    "Id: %s - Name: %s - First: %s - Last: %s - Value: %s\n",
-    updated.Id,
-    updated.Info.Name,
-    updated.Info.First,
-    updated.Info.Last,
-    updated.Info.Value,
-  )
+  return &updated, nil
+
 }
 
 func table(svc *dynamodb.DynamoDB) error {
