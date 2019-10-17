@@ -12,10 +12,7 @@ import (
   "github.com/aws/aws-sdk-go/aws/session"
   "github.com/aws/aws-sdk-go/service/dynamodb"
   "github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
-
 )
-
-//"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
 
 type TestKey struct {
   Id string  `json:"id"`
@@ -31,10 +28,6 @@ type TestInfo struct {
   First string `json:"f"`
   Last string `json:"l"`
   Value string `json:"v"`
-}
-
-type TestInfoUpdate struct {
-  Info TestInfo `json:":i"`
 }
 
 func main() {
@@ -71,13 +64,11 @@ func main() {
 
   rand.Seed(time.Now().UnixNano())
 
-  test := TestInfoUpdate{
-    Info : TestInfo{
-      Name: "First Lastl",
-      First: "Firstl",
-      Last: "Last",
-      Value: strconv.Itoa(rand.Intn(1000)),
-    },
+  test:= TestInfo{
+    Name: "First Last",
+    First: "First",
+    Last: "Last",
+    Value: strconv.Itoa(rand.Intn(1000)),
   }
 
   update, err := dynamodbattribute.MarshalMap(test)
@@ -87,12 +78,13 @@ func main() {
   }
   //fmt.Println(update)
 
-
   input := &dynamodb.UpdateItemInput{
     Key:                       key,
     TableName:                 aws.String("Test"),
     UpdateExpression:          aws.String("set i=:i"),
-    ExpressionAttributeValues: update,
+    ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
+      ":i": &dynamodb.AttributeValue{M: update},
+    },
     ReturnValues:              aws.String("ALL_NEW"),
   }
 
