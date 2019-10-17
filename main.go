@@ -5,7 +5,9 @@ import (
   "fmt"
   "strconv"
   "math/rand"
+  "errors"
   "time"
+  "reflect"
 
   "github.com/aws/aws-sdk-go/aws"
   "github.com/aws/aws-sdk-go/aws/awserr"
@@ -20,7 +22,7 @@ type TestKey struct {
 
 type Test struct {
   Id string  `json:"id"`
-  Info  TestInfo `json:"i,omitempty"`
+  Info *TestInfo `json:"i,omitempty"`
 }
 
 type TestInfo struct {
@@ -82,102 +84,128 @@ func main() {
     )
   }
 
+  if err = put(
+    &Test{
+      Id: "thisisatest0",
+      Info: &TestInfo{
+        Name: "late entry",
+        First: "late",
+        Last: "entry"},
+    },
+    "Test",
+    svc,
+  ); err != nil {
+    fmt.Println(err)
+    return
+  }
+
   fmt.Println("items")
-  results, err := items(&TestKey{ Id: "thisisatest0"}, svc)
+  results, err := items(&TestKey{ Id: "thisisatest0"}, &Test{}, "Test", svc)
   if err != nil {
     fmt.Println(err)
   }
   for _, i := range results {
+    t := i.(*Test)
    fmt.Printf(
       "Id: %s - Name: %s - First: %s - Last: %s - Value: %s\n",
-      i.Id,
-      i.Info.Name,
-      i.Info.First,
-      i.Info.Last,
-      i.Info.Value,
+      t.Id,
+      t.Info.Name,
+      t.Info.First,
+      t.Info.Last,
+      t.Info.Value,
     )
   }
 
-  if err = delete(&TestKey{ Id: "thisisatest0"}, svc); err != nil {
+  if err = delete(&TestKey{ Id: "thisisatest0"}, "Test", svc); err != nil {
     fmt.Println(err)
   }
 
   fmt.Println("item")
-  if item, err := item(&TestKey{ Id: "thisisatest1"}, svc); err != nil {
-    fmt.Println(err)
-  } else if item == nil {
-    fmt.Println("Item is nil")
+  test := &Test{}
+  if err := item(&TestKey{ Id: "thisisatest1"}, test, "Test", svc); err != nil {
+    if err.Error() == "NotFound" {
+      fmt.Println("Not found")
+    } else {
+      fmt.Println(err)
+    }
   } else {
    fmt.Printf(
       "Id: %s - Name: %s - First: %s - Last: %s - Value: %s\n",
-      item.Id,
-      item.Info.Name,
-      item.Info.First,
-      item.Info.Last,
-      item.Info.Value,
+      test.Id,
+      test.Info.Name,
+      test.Info.First,
+      test.Info.Last,
+      test.Info.Value,
     )
   }
 }
 
-func delete(k *TestKey, svc *dynamodb.DynamoDB) error {
-  key, err := dynamodbattribute.MarshalMap(*k)
+func delete(k interface{}, table string, svc *dynamodb.DynamoDB) error {
+  key, err := dynamodbattribute.MarshalMap(k)
   if err != nil {
     return err
   }
 
-  if out, err := svc.DeleteItem(&dynamodb.DeleteItemInput{
-    TableName: aws.String("Test"),
-    ReturnValues: aws.String("ALL_OLD"),
+  if _, err := svc.DeleteItem(&dynamodb.DeleteItemInput{
+    TableName: aws.String(table),
     Key: key,
   }); err != nil {
     return err
-  } else {
-    if len(out.Attributes) == -1 {
-      fmt.Println("Nothing deleted")
-    }
   }
-
   return nil
-
 }
 
-func item(k *TestKey, svc *dynamodb.DynamoDB) (*Test, error) {
-
-  key, err := dynamodbattribute.MarshalMap(*k)
+func put(v interface{}, table string, svc *dynamodb.DynamoDB) error {
+  i, err := dynamodbattribute.MarshalMap(v)
   if err != nil {
-    return nil, err
+    return err
+  }
+
+  if _, err := svc.PutItem(&dynamodb.PutItemInput{
+    TableName: aws.String(table),
+    Item: i,
+  }); err != nil {
+    return err
+  }
+  return nil
+}
+
+func item(k interface{}, v interface{}, table string, svc *dynamodb.DynamoDB) error {
+
+  key, err := dynamodbattribute.MarshalMap(k)
+  if err != nil {
+    return err
   }
 
   out, err := svc.GetItem(&dynamodb.GetItemInput{
-    TableName: aws.String("Test"),
+    TableName: aws.String(table),
     Key: key,
   })
   if err != nil {
-    return nil, err
+    return err
   }
 
   if len(out.Item) == 0 {
-    return nil, nil
+    return errors.New("NotFound")
   }
 
-  t := &Test{}
-  err = dynamodbattribute.UnmarshalMap(out.Item, &t)
+  err = dynamodbattribute.UnmarshalMap(out.Item, v)
   if err != nil {
-    return nil, err
+    return err
   }
 
-  return t, nil
+  return nil
 }
 
-func items(k *TestKey, svc *dynamodb.DynamoDB) ([]*Test, error) {
+func items(k interface{}, itemType interface{}, table string, svc *dynamodb.DynamoDB) ([]interface{}, error) {
 
-  key, err := dynamodbattribute.MarshalMap(*k)
+  key, err := dynamodbattribute.MarshalMap(k)
   if err != nil {
     return nil, err
   }
 
   out, err := svc.Query(&dynamodb.QueryInput{
-    TableName: aws.String("Test"),
+    TableName: aws.String(table),
     KeyConditionExpression: aws.String("id=:id"),
     ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
       ":id": key["id"],
@@ -187,15 +215,16 @@ func items(k *TestKey, svc *dynamodb.DynamoDB) ([]*Test, error) {
     return nil, err
   }
 
-  var items []*Test
+  var items []interface{}
 
   for _, item := range out.Items {
-    t := &Test{}
-    err = dynamodbattribute.UnmarshalMap(item, &t)
+    i := reflect.New(reflect.ValueOf(itemType).Elem().Type()).Interface()
+
+    err = dynamodbattribute.UnmarshalMap(item, i)
     if err != nil {
       return nil, err
     }
-    items = append(items, t)
+    items = append(items, i)
   }
 
   return items, nil
